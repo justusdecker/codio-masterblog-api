@@ -9,8 +9,14 @@ POSTS = [
     {"id": 2, "title": "Second post", "content": "This is the second post."},
 ]
 
+ALLOWED_KEYS = ['title', 'content']
+ALLOWED_ORDERS = ['desc', 'asc']
 def get_ids() -> list[int]:
     return [i['id'] for i in POSTS]
+def search_in(key: str, phrase: str):
+    return [i for i in POSTS if phrase.lower() in i[key].lower()]
+def remove_duplicates(search_list):
+    pass
 
 @app.route('/api/posts', methods=['GET', 'POST'])
 def get_posts():
@@ -65,8 +71,30 @@ def get_posts():
         )
         
         return jsonify(output),201
-    return jsonify(POSTS)
-
+    elif request.method == 'GET':
+        try:
+            args = query_parse(request.query_string.decode())
+        except:
+            args = False
+        if not args:
+            return jsonify(POSTS)
+        else:
+            direction = args.get('direction','desc')
+            sort = args.get('sort','title')
+            if sort not in ALLOWED_KEYS:
+                sort = 'title'
+            if direction not in ALLOWED_ORDERS:
+                direction = 'desc'
+                
+            if sort == 'title':
+                sorting_method = lambda x: x['title']
+            elif sort == 'content':
+                sorting_method = lambda x: x['content']
+                
+            sorting_direction = True if direction == 'desc' else False
+            sorted_list = sorted(POSTS,reverse=sorting_direction,key=sorting_method)
+            return jsonify(sorted_list)
+        
 @app.route('/api/posts/<id>/delete', methods=['DELETE'])
 def delete_post(id:str):
     """
@@ -96,24 +124,54 @@ def delete_post(id:str):
     return jsonify({'message': f'Post with id <{id}> has been deleted successfully.'}), 200
   
 @app.route('/api/posts/<id>', methods=['PUT'])
-def add_post(id:str):
+def update_post(id:str):
     if not id.isdecimal():
         return "Bad Request",400
     id = int(id)
     if id not in get_ids():
         return "Not Found",404 # <- 410 Gone?
     
-    title = request.form.get('title','')
-    content = request.form.get('content','')
+    try:
+        req = request.json
+    except:
+        return "Bad Request", 400
+    
+    title = req.get('title','')
+    content = req.get('content','')
+    
+
     blogpost = POSTS[get_ids().index(id)]
+    
     if title:
         blogpost['title'] = title
     if content:
         blogpost['content'] = content
     
-    
-    
     return jsonify(blogpost), 200
   
+def query_parse(q:str) -> dict[str,str]:
+    return {i.split('=')[0]: i.split('=')[1] for i in q.split('&')}
+
+@app.route('/api/posts/search', methods=['GET'])
+def search_post():
+    try:
+        args = query_parse(request.query_string.decode())
+    except:
+        args = False
+    if not args:
+        return jsonify(POSTS)
+    results = []
+    seen = set()
+    for key in args:
+        if key not in ['title', 'content']:
+            continue
+        for i in search_in(key,args[key]):
+            
+            if i['id'] not in seen:
+                seen.add(i['id'])
+                results.append(i)
+
+    return jsonify(results), 200
+
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5002, debug=True)
